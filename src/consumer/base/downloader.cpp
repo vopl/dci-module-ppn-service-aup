@@ -76,8 +76,8 @@ namespace dci::module::ppn::service::aup::consumer::base
         {
             struct Transfer : std::enable_shared_from_this<Transfer>, mm::heap::Allocable<Transfer>
             {
-                sbs::Owner                  _sbsOwner;
-                api::BlobTransfer<>    _api;
+                sbs::Owner          _sbsOwner;
+                api::BlobTransfer<> _api;
 
                 Transfer()
                     : _api{idl::interface::Initializer{}}
@@ -101,6 +101,13 @@ namespace dci::module::ppn::service::aup::consumer::base
 
             auto updateTransfer = [&](const TransferPtr& t, api::BlobStatus bs)
             {
+                if(!t->_api)
+                {
+                    transfersReady.erase(t);
+                    transfersWait.erase(t);
+                    return;
+                }
+
                 switch(bs)
                 {
                 case api::BlobStatus::present:
@@ -118,7 +125,6 @@ namespace dci::module::ppn::service::aup::consumer::base
                     transfersWait.erase(t);
                     break;
                 }
-
             };
 
             const uint32 granulaSize = 1024 * 128;
@@ -153,6 +159,7 @@ namespace dci::module::ppn::service::aup::consumer::base
                     if(!transfersReady.empty())
                     {
                         TransferPtr transfer = *transfersReady.begin();
+                        dbgAssert(transfer->_api);
 
                         auto resf = transfer->_api->getPiece(recvBuffer.payloadSize(), granulaSize+0);
                         resf.wait();
@@ -180,15 +187,16 @@ namespace dci::module::ppn::service::aup::consumer::base
                                     recvBuffer.reset();
                                 }};
 
-                                LOGI(_b->_name<<": blob transfer complete: "<<utils::b2h(_oid)<<", "<<recvBuffer.payloadSize()<<" bytes");
+                                std::size_t recvBufferPayloadSize = recvBuffer.payloadSize();
                                 if(_b->ready(this, recvBuffer))
                                 {
+                                    LOGI(_b->_name<<": blob transfer complete: "<<utils::b2h(_oid)<<", "<<recvBufferPayloadSize<<" bytes");
                                     done = true;
                                     break;
                                 }
 
                                 //ауп не принял полученный блоб, бросить его и попробовать еще раз
-                                LOGW(_b->_name<<": blob unaccepted: "<<utils::b2h(_oid));
+                                LOGW(_b->_name<<": blob unaccepted: "<<utils::b2h(_oid)<<", "<<recvBufferPayloadSize<<" bytes");
                             }
                         }
                         else if(resf.resolvedException())
